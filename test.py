@@ -1,52 +1,13 @@
-import ctypes
-import time
-from ctypes import wintypes
+# минимально — работает на Windows
+import subprocess
 
-# ULONG_PTR зависит от разрядности системы
-if ctypes.sizeof(ctypes.c_void_p) == 8:  # 64-bit
-    ULONG_PTR = ctypes.c_ulonglong
-else:  # 32-bit
-    ULONG_PTR = ctypes.c_ulong
+cmd = r'powershell -NoProfile -Command "Add-Type -MemberDefinition @\'using System; using System.Text; using System.Runtime.InteropServices; public static class W{ [DllImport(\"user32.dll\")] public static extern IntPtr GetForegroundWindow(); [DllImport(\"user32.dll\", CharSet=CharSet.Auto)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount); [DllImport(\"user32.dll\")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);} \'@ -Name WinApi -Namespace WinLib; $h=[WinLib.WinApi]::GetForegroundWindow(); $sb=New-Object System.Text.StringBuilder 1024; [WinLib.WinApi]::GetWindowText($h,$sb,$sb.Capacity) > $null; [WinLib.WinApi]::GetWindowThreadProcessId($h,[ref]$pid) > $null; Write-Output \"Title: $($sb.ToString())\"; Write-Output \"PID: $pid;\"; try{ Write-Output \"Process: \" + (Get-Process -Id $pid).ProcessName } catch { Write-Output \"Process: (unknown or access denied)\" }"'
 
-VK_DELETE = 0x2E
-KEYEVENTF_KEYUP = 0x0002
-INPUT_KEYBOARD = 1
+# Скрыть окно, захватить вывод
+si = subprocess.STARTUPINFO()
+si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+si.wShowWindow = subprocess.SW_HIDE
 
-class KEYBDINPUT(ctypes.Structure):
-    _fields_ = [
-        ("wVk", wintypes.WORD),
-        ("wScan", wintypes.WORD),
-        ("dwFlags", wintypes.DWORD),
-        ("time", wintypes.DWORD),
-        ("dwExtraInfo", ULONG_PTR),
-    ]
-
-class _INPUTunion(ctypes.Union):
-    _fields_ = [("ki", KEYBDINPUT)]
-
-class INPUT(ctypes.Structure):
-    _anonymous_ = ("u",)
-    _fields_ = [("type", wintypes.DWORD), ("u", _INPUTunion)]
-
-SendInput = ctypes.windll.user32.SendInput
-
-def press_delete():
-    inp = INPUT()
-    inp.type = INPUT_KEYBOARD
-    inp.ki.wVk = VK_DELETE
-    inp.ki.wScan = 0
-    inp.ki.dwFlags = 0
-    inp.ki.time = 0
-    inp.ki.dwExtraInfo = 0
-    SendInput(1, ctypes.byref(inp), ctypes.sizeof(inp))
-
-    time.sleep(0.02)
-
-    inp.ki.dwFlags = KEYEVENTF_KEYUP
-    SendInput(1, ctypes.byref(inp), ctypes.sizeof(inp))
-    print("Delete нажат")
-
-if __name__ == "__main__":
-    print("Переключись на рабочий стол и выдели файл. Через 2 сек будет Delete.")
-    time.sleep(2)
-    press_delete()
+proc = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, startupinfo=si)
+print(proc.stdout)
+print(proc.stderr)
