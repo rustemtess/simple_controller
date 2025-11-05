@@ -11,7 +11,7 @@ import base64
 import threading
 import mss
 from PIL import Image
-
+# test
 APPDATA_DIR = os.getenv("APPDATA") or os.path.expanduser("~/.config")
 ID_FILE = os.path.join(APPDATA_DIR, "id.txt")
 
