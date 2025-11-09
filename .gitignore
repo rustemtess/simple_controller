@@ -9,3 +9,5 @@ voice.py
 notify.py
 eye.py
 move.py
+mouse.py
+full_control.py
